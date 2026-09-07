@@ -95,6 +95,8 @@
     <div class="filebox" id="fileboxDocPrecedente" style="display:none"><input type="file" id="docPrecedenteIntestatario" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" multiple></div>
 
     <button type="submit" id="btnInvia">Invia al gestore</button>
+    <button type="button" id="btnTest" style="background:#f4a700;color:#102a43;margin-top:8px">Invia TEST a me (non al gestore)</button>
+    <p class="hint" style="margin:6px 0 0;text-align:center">Il pulsante TEST manda una email di prova solo all'email del cliente (e all'agente se compilata) con tutti i documenti caricati. <strong>Nessuna mail parte al gestore.</strong> Serve per far vedere al cliente come riceverà la pratica.</p>
     <div id="status" role="alert"></div>
   </form>
 </main>
@@ -102,7 +104,7 @@
 <script>
 // ATTENZIONE: sostituisci con l'URL /exec dell'Apps Script pubblicato
 // SOTTO L'ACCOUNT GOOGLE contrattiddm@gmail.com (cosi le mail partono da li).
-const GAS_URL = 'INSERISCI_QUI_URL_WEBAPP_APPS_SCRIPT';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzIpfgD4Ku49RVGkSwklC-xvbEs75y0ONoUBDXGQSCIH_rHRmq1hAExn9ZOwj-QAwk5/exec';
 const LS_KEY_EMAIL_AGENTE = 'ddm_emailAgente';
 
 const gestoreSel = document.getElementById('gestore');
@@ -273,7 +275,7 @@ form.addEventListener('submit', async (e) => {
         tipoOperazione: tipoOperazione,
         precedenteIntestatario: inputPrecedente.value.trim()
       },
-      allegati
+      attachments: allegati  // il .gs si aspetta "attachments"
     };
     const r = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
     const j = await r.json();
@@ -289,6 +291,58 @@ form.addEventListener('submit', async (e) => {
   }catch(err){
     setStatus('error', 'Errore di connessione: ' + err.message);
   }finally{
+    btn.disabled = false;
+  }
+});
+
+// ---- PULSANTE TEST: manda email SOLO al cliente (+ agente), MAI al gestore ----
+const btnTest = document.getElementById('btnTest');
+btnTest.addEventListener('click', async () => {
+  syncVoltura();
+  if (!form.reportValidity()) return;
+  const tipoOperazione = document.querySelector('input[name=tipoOperazione]:checked')?.value;
+  if (!tipoOperazione) { setStatus('error', 'Indica il tipo di operazione.'); return; }
+  const emailCliente = document.getElementById('emailCliente').value.trim();
+  if (!emailCliente) { setStatus('error', 'Inserisci l\'email del cliente (è il destinatario del TEST).'); return; }
+  try {
+    btnTest.disabled = true;
+    btn.disabled = true;
+    setStatus('loading', 'Conversione foto in PDF e preparazione allegati...');
+    const allegati = await raccogliAllegati();
+    if (allegati.length === 0) {
+      setStatus('error', 'Carica almeno un documento prima di inviare il TEST.');
+      btnTest.disabled = false; btn.disabled = false;
+      return;
+    }
+    setStatus('loading', 'Invio TEST al cliente in corso...');
+    const payload = {
+      action: 'test',
+      gestore: gestoreSel.value,
+      emailCliente: emailCliente,
+      emailAgente: emailAgenteInput.value.trim(),
+      fields: {
+        nominativo: document.getElementById('nominativo').value.trim(),
+        cellulareCliente: document.getElementById('cellulareCliente').value.trim(),
+        gestore: gestoreSel.value,
+        tipoOperazione: tipoOperazione,
+        precedenteIntestatario: inputPrecedente.value.trim(),
+        data: new Date().toLocaleString('it-IT')
+      },
+      attachments: allegati  // il .gs si aspetta "attachments"
+    };
+    const r = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
+    const j = await r.json();
+    if (j.ok) {
+      setStatus('success', 'Email di TEST inviata a ' + emailCliente +
+        (payload.emailAgente ? ' (cc: ' + payload.emailAgente + ')' : '') +
+        '. Nessuna mail è stata inviata al gestore. (' + allegati.length + ' allegati)');
+    } else {
+      setStatus('error', j.error || 'Errore durante l\'invio del TEST.');
+    }
+  } catch (err) {
+    setStatus('error', 'Errore di connessione: ' + err.message);
+  } finally {
+    btnTest.disabled = false;
     btn.disabled = false;
   }
 });
